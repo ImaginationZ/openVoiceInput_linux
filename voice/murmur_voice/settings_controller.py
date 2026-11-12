@@ -125,6 +125,7 @@ _STATUS_CODES = frozenset(
         "output-style-invalid",
         "output-target-invalid",
         "none",
+        "preedit-final-copied",
         "preedit-final-rejected",
         "preedit-lost",
         "preedit-rejected",
