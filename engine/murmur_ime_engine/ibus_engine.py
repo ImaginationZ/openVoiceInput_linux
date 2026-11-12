@@ -250,6 +250,10 @@ class MurmurEngine(IBus.Engine):
         return True
 
     def _set_preedit(self, text: str) -> None:
+        # Periodic focus checks resend the same text; skip the redraw.
+        if text == getattr(self, "_shown_preedit", None):
+            return
+        self._shown_preedit = text
         self.update_preedit_text_with_mode(
             IBus.Text.new_from_string(text),
             len(text),
@@ -259,6 +263,7 @@ class MurmurEngine(IBus.Engine):
         self._show_listening_hint(text)
 
     def _clear_preedit(self) -> None:
+        self._shown_preedit = None
         self.update_preedit_text_with_mode(
             IBus.Text.new_from_string(""),
             0,
