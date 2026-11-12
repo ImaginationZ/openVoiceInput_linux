@@ -26,15 +26,6 @@ here. The project has not published a stable release yet.
   PipeWire's resampling `pipewire` ALSA endpoint. Any doubt keeps the strict
   hardware-only fallback. No extra packages are needed.
 
-### Changed
-
-- Switching windows mid-dictation (a pkexec or sudo password dialog, another
-  window) no longer loses what was said: preedit now uses IBus's COMMIT focus
-  mode, so IBus commits the words shown so far into the original field, and the
-  dictation ends there. The daemon confirms once a second that its field is
-  still focused, so the microphone closes promptly even when the speaker is
-  silent instead of recording until the next partial or the time limit.
-
 ## [0.1.0-alpha.9] - 2026-09-04
 
 ### Fixed
