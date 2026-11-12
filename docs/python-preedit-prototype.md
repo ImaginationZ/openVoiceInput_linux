@@ -82,7 +82,10 @@ Cancel(utterance_id: s) -> accepted: b
 focus token and the caller's unique D-Bus name. Every later call must match the
 caller, utterance, and focus token. Text revisions must strictly increase.
 Focus loss, engine disable, caller disappearance, and a switch to a private
-field all clear preedit/observation and invalidate the session. An input-context
+field all clear preedit/observation and invalidate the session. Preedit is
+shown with IBus's COMMIT focus mode, so on focus loss IBus first commits the
+words shown so far into that same field; the daemon's once-a-second focus check
+(a Partial re-sending the latest text) is then rejected and ends the recording. An input-context
 reset before Final also invalidates preedit; during the post-Final observation,
 GTK's ordinary same-focus edit reset instead requests a fresh surrounding
 snapshot while the focus token remains authoritative. `Final` is accepted once,

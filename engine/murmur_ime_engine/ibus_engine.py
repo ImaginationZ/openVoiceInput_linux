@@ -200,11 +200,14 @@ class MurmurEngine(IBus.Engine):
         return True
 
     def _set_preedit(self, text: str) -> None:
+        # COMMIT: if the field loses focus (a password dialog, another window)
+        # IBus commits the words shown so far into that same field; the
+        # utterance then ends as before. Clearing below stays CLEAR.
         self.update_preedit_text_with_mode(
             IBus.Text.new_from_string(text),
             len(text),
             bool(text),
-            IBus.PreeditFocusMode.CLEAR,
+            IBus.PreeditFocusMode.COMMIT,
         )
 
     def _clear_preedit(self) -> None:

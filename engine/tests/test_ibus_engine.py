@@ -97,6 +97,15 @@ class MurmurEnginePresentationTests(unittest.TestCase):
         self.assertFalse(visible)
         self.assertEqual(recorder.commits, [])
 
+    def test_shown_preedit_is_committed_by_ibus_if_the_field_loses_focus(self) -> None:
+        recorder = _PresentationRecorder()
+
+        MurmurEngine._set_preedit(recorder, "已经说的部分")
+        MurmurEngine._clear_preedit(recorder)
+
+        self.assertEqual(recorder.preedits[0][3], IBus.PreeditFocusMode.COMMIT)
+        self.assertEqual(recorder.preedits[1][3], IBus.PreeditFocusMode.CLEAR)
+
     def test_final_retains_session_until_observation_is_consumed(self) -> None:
         engine = _EngineHarness()
 
