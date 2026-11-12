@@ -11,7 +11,7 @@ from murmur_voice.confirmed_correction import ConfirmedCorrectionEdit
 from murmur_voice.config import ConfigError, CorrectionPair, VoiceConfig
 from murmur_voice.preedit import AcquireResult, ObservationSnapshot
 from murmur_voice.output_style import OutputDelivery, OutputStyleConfig
-from murmur_voice.output_target import ClipboardError, OutputTargetConfig
+from murmur_voice.output_target import OutputTargetConfig
 from murmur_voice.session import (
     ADAPTIVE_OBSERVATION_FINISH_MARGIN_SECONDS,
     ADAPTIVE_OBSERVATION_SECONDS,
@@ -212,11 +212,6 @@ def _session(acquisition=AcquireResult.ACQUIRED, **session_options):
     )
 
     utterance_factory = session_options.pop("utterance_factory", lambda: "utterance-1")
-    # Tests never touch the real clipboard; by default it is unavailable.
-    session_options.setdefault(
-        "clipboard_writer",
-        FakeClipboardWriter(order, preflight_error=ClipboardError("unavailable")),
-    )
     session = VoiceSession(
         VoiceConfig("test-key"),
         asr_client=asr,
@@ -615,26 +610,6 @@ def test_rejected_authoritative_final_discards_optional_record():
     assert record.commits == []
     assert record.discards == 1
     assert session.status().code == "preedit-final-rejected"
-
-
-def test_rejected_final_is_copied_to_the_clipboard_instead_of_lost():
-    record = FakeDataRecord()
-    order = []
-    writer = FakeClipboardWriter(order)
-    session, asr, audio, preedit, timers, _order = _session(
-        data_collection_factory=lambda _utterance_id: record,
-        clipboard_writer=writer,
-    )
-    preedit.final_result = False
-    session.start()
-    audio.callback(b"\x01\x02")
-    asr.on_result("dictated while the field was away")
-
-    asr.on_finish()
-
-    assert writer.writes == ["dictated while the field was away"]
-    assert record.commits == []
-    assert session.status().code == "preedit-final-copied"
 
 
 def test_background_collection_failure_is_visible_without_blocking_status():

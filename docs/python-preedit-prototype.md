@@ -81,12 +81,9 @@ Cancel(utterance_id: s) -> accepted: b
 `Acquire` internally captures the active engine's monotonically increasing
 focus token and the caller's unique D-Bus name. Every later call must match the
 caller, utterance, and focus token. Text revisions must strictly increase.
-Engine disable, caller disappearance, a switch to a private field, and focus
-loss without an identifiable input context clear preedit/observation and
-invalidate the session. Before Final, focus moving to another identified context
-suspends the utterance for up to two minutes and resumes it when the same
-context is focused again; a Final while away is rejected. An input-context reset
-before Final only clears the shown preedit; during the post-Final observation,
+Focus loss, engine disable, caller disappearance, and a switch to a private
+field all clear preedit/observation and invalidate the session. An input-context
+reset before Final also invalidates preedit; during the post-Final observation,
 GTK's ordinary same-focus edit reset instead requests a fresh surrounding
 snapshot while the focus token remains authoritative. `Final` is accepted once,
 clears preedit, and calls `commit_text()` once. It then waits for a newer IBus

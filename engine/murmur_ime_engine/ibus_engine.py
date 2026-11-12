@@ -7,8 +7,6 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Mapping
-import time
-from dataclasses import dataclass
 
 import gi
 
@@ -66,22 +64,6 @@ def listening_hint(text: str, label: str | None = None) -> str:
     return f"{label} · {text}"
 
 
-# How long a dictation survives while its input field is not focused (a dialog,
-# another window). Returning to the same field resumes it; after this it ends.
-SUSPENDED_DICTATION_SECONDS = 120.0
-
-
-@dataclass(slots=True)
-class SuspendedDictation:
-    """A live utterance whose input context temporarily lost focus."""
-
-    context: str
-    owner: str
-    utterance_id: str
-    deadline: float
-    text: str = ""
-
-
 class MurmurEngine(IBus.Engine):
     """Voice-only development engine; ordinary keys pass to the application."""
 
@@ -108,7 +90,6 @@ class MurmurEngine(IBus.Engine):
         self._capabilities = 0
         self._purpose = int(IBus.InputPurpose.FREE_FORM)
         self._hints = int(IBus.InputHints.NONE)
-        self._suspended: SuspendedDictation | None = None
         self._surrounding_revision = 0
         self._observation_timeout_source_id = 0
         registry.register(self)
@@ -147,19 +128,6 @@ class MurmurEngine(IBus.Engine):
         revision: int,
         text: str,
     ) -> bool:
-        suspended = self._live_suspension(owner, utterance_id)
-        if suspended is not None:
-            # Keep listening while the field is away; show it on return.
-            if not valid_preedit_text(text) or not self._sessions.accept_text(
-                owner,
-                utterance_id,
-                self._sessions.active.focus_token,
-                revision,
-                final=False,
-            ):
-                return False
-            suspended.text = text
-            return True
         if not self.can_acquire() or not valid_preedit_text(text):
             return False
         if not self._sessions.accept_text(
@@ -249,7 +217,6 @@ class MurmurEngine(IBus.Engine):
     def cancel(self, owner: str, utterance_id: str) -> bool:
         if not self._sessions.cancel(owner, utterance_id):
             return False
-        self._suspended = None
         self._cancel_observation_timeout()
         self._clear_surrounding_cache()
         self._clear_preedit()
@@ -261,7 +228,6 @@ class MurmurEngine(IBus.Engine):
         session = self._sessions.active
         if session is None or session.owner != owner:
             return False
-        self._suspended = None
         self._cancel_observation_timeout()
         self._sessions.invalidate()
         self._clear_surrounding_cache()
@@ -302,59 +268,7 @@ class MurmurEngine(IBus.Engine):
             True,
         )
 
-    def _live_suspension(
-        self, owner: str, utterance_id: str
-    ) -> SuspendedDictation | None:
-        suspended = getattr(self, "_suspended", None)
-        if suspended is None:
-            return None
-        if time.monotonic() >= suspended.deadline:
-            self._invalidate_voice("suspended dictation expired")
-            return None
-        if suspended.owner != owner or suspended.utterance_id != utterance_id:
-            return None
-        return suspended
-
-    def _suspend_voice(self, reason: str) -> bool:
-        """Keep a live utterance while its field is away; False if not possible."""
-
-        session = self._sessions.active
-        context = self._focus_context
-        if (
-            session is None
-            or session.final_seen
-            or not context
-            or is_private_input(self._purpose, self._hints)
-        ):
-            return False
-        self._suspended = SuspendedDictation(
-            context,
-            session.owner,
-            session.utterance_id,
-            time.monotonic() + SUSPENDED_DICTATION_SECONDS,
-        )
-        self._clear_preedit()
-        logger.info("Suspended voice preedit: %s", reason)
-        return True
-
-    def _resume_voice(self, object_path: str) -> None:
-        suspended = getattr(self, "_suspended", None)
-        if suspended is None or not object_path or object_path != suspended.context:
-            return
-        if time.monotonic() >= suspended.deadline:
-            self._invalidate_voice("suspended dictation expired")
-            return
-        if not self.can_acquire() or not self._sessions.rebind(
-            suspended.owner, suspended.utterance_id, self._focus_token
-        ):
-            self._invalidate_voice("suspended dictation could not resume")
-            return
-        self._suspended = None
-        self._set_preedit(suspended.text)
-        logger.info("Resumed voice preedit at focus token %d", self._focus_token)
-
     def _invalidate_voice(self, reason: str) -> None:
-        self._suspended = None
         self._cancel_observation_timeout()
         had_session = self._sessions.invalidate()
         self._clear_surrounding_cache()
@@ -450,20 +364,14 @@ class MurmurEngine(IBus.Engine):
         self._focus_in(object_path, client)
 
     def _focus_in(self, object_path: str, client: str) -> None:
-        if self.has_active_session and getattr(self, "_suspended", None) is None:
-            if not self._suspend_voice("focus changed"):
-                self._invalidate_voice("focus changed")
+        if self.has_active_session:
+            self._invalidate_voice("focus changed")
         self._focus_token += 1
         self._clear_surrounding_cache()
         self._focus_context = object_path
         self._focus_client = client
         self._focused = is_real_input_client(client)
-        # Content type is per field; a password prompt's must not linger into
-        # the next field before that field reports its own.
-        self._purpose = int(IBus.InputPurpose.FREE_FORM)
-        self._hints = int(IBus.InputHints.NONE)
         logger.debug("Focus in token=%d client=%s", self._focus_token, client)
-        self._resume_voice(object_path)
 
     def do_focus_out(self) -> None:
         self._focus_out("")
@@ -474,16 +382,12 @@ class MurmurEngine(IBus.Engine):
     def _focus_out(self, object_path: str) -> None:
         if object_path and self._focus_context and object_path != self._focus_context:
             return
-        suspended = getattr(self, "_suspended", None) is not None or (
-            self._suspend_voice("focus lost")
-        )
         self._focused = False
         self._focus_context = ""
         self._focus_client = ""
         self._focus_token += 1
         self._clear_surrounding_cache()
-        if not suspended:
-            self._invalidate_voice("focus lost")
+        self._invalidate_voice("focus lost")
 
     def do_enable(self) -> None:
         self._enabled = True
@@ -506,21 +410,11 @@ class MurmurEngine(IBus.Engine):
             if callable(getter):
                 getter()
             return
-        if self._sessions.active is not None and not self._sessions.active.final_seen:
-            # Terminals and web views reset the context when they blur or
-            # redraw. Drop only the shown preedit; the next partial redraws
-            # it at the caret, and the final commits once as usual.
-            self._clear_preedit()
-            return
         self._focus_token += 1
         self._invalidate_voice("input context reset")
 
     def do_set_capabilities(self, capabilities: int) -> None:
         self._capabilities = int(capabilities)
-        if getattr(self, "_suspended", None) is not None:
-            # Another field (a dialog) is focused; the suspended utterance is
-            # bound to its own context and is rechecked when it returns.
-            return
         if not self._capabilities & int(IBus.Capabilite.PREEDIT_TEXT):
             self._invalidate_voice("client has no preedit capability")
 
@@ -548,10 +442,6 @@ class MurmurEngine(IBus.Engine):
         self._hints = int(hints)
         if is_private_input(self._purpose, self._hints):
             self._clear_surrounding_cache()
-            if getattr(self, "_suspended", None) is not None:
-                # A password prompt elsewhere (pkexec, sudo) must not end a
-                # dictation that is waiting for its own, non-private field.
-                return
             self._invalidate_voice("private input field")
 
     def do_destroy(self) -> None:

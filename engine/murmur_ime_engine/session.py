@@ -140,24 +140,6 @@ class SessionGuard:
         session.final_seen = final
         return True
 
-    def rebind(self, owner: str, utterance_id: str, focus_token: int) -> bool:
-        """Move a live, not yet final utterance to a new focus token.
-
-        Used only when focus returns to the exact input context the utterance
-        was acquired in; ordering and final-once checks are unchanged.
-        """
-
-        session = self._active
-        if (
-            session is None
-            or session.final_seen
-            or session.owner != owner
-            or session.utterance_id != utterance_id
-        ):
-            return False
-        session.focus_token = focus_token
-        return True
-
     def cancel(self, owner: str, utterance_id: str) -> bool:
         session = self._active
         if (

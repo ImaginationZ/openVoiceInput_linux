@@ -116,7 +116,6 @@ _STATUS_LABELS = {
     "adaptive-correction-learned": "已学习本次修改，后续听写会使用",
     "adaptive-correction-skipped": "本次修改未生成全局纠错规则",
     "recognition-context-invalid": "识别上下文文件无效或不安全",
-    "preedit-final-copied": "输入框已离开，最终文本已复制到剪贴板",
     "preedit-final-rejected": "当前输入框拒绝了最终文本",
     "preedit-lost": "已失去当前输入框焦点",
     "preedit-rejected": "当前输入框拒绝听写",

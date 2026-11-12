@@ -26,19 +26,6 @@ here. The project has not published a stable release yet.
   PipeWire's resampling `pipewire` ALSA endpoint. Any doubt keeps the strict
   hardware-only fallback. No extra packages are needed.
 
-### Changed
-
-- A dictation survives a brief focus change, such as a pkexec or sudo password
-  dialog or a click into another window. The engine suspends the utterance
-  instead of discarding it (for up to two minutes), keeps accepting partials
-  without showing them, and redraws the preedit when the same input context is
-  focused again; finishing there commits as usual. A password field or a
-  no-preedit client elsewhere no longer ends it. An input-context reset before
-  Final now clears only the shown preedit (terminals and web views reset on
-  blur). A final that arrives while the field is away is still never committed
-  elsewhere: the daemon copies it to the clipboard (`preedit-final-copied`) when
-  a clipboard helper is available.
-
 ## [0.1.0-alpha.9] - 2026-09-04
 
 ### Fixed

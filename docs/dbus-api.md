@@ -43,14 +43,7 @@ This does not roll back or otherwise change the already accepted final commit.
 Focus loss, engine disable, cancellation, and disappearance of the D-Bus sender
 discard the observation. GTK may issue an input-context reset as part of an
 ordinary same-focus edit; during observation this only requests a fresh
-surrounding snapshot. Before Final, a reset only clears the shown preedit; the
-next Partial redraws it and the utterance continues (terminals and web views
-reset on blur). Before Final, focus moving to another input context suspends the
-utterance for up to two minutes: Partial is still accepted but not shown, focus
-returning to the same context rebinds and redraws it, and Final while away is
-rejected so it is never committed elsewhere (the daemon then copies it to the
-clipboard). A private field or no-preedit client elsewhere does not end a
-suspended utterance. A
+surrounding snapshot, while a reset before Final still invalidates preedit. A
 mismatched sender or utterance cannot read or consume the observation. Both
 returned texts use the same 4,096-codepoint and 16-KiB UTF-8 bounds as preedit
 text, and all offsets are Unicode character indices into their associated

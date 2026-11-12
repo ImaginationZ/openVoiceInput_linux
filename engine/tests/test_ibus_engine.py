@@ -72,7 +72,6 @@ class _EngineHarness(_PresentationRecorder):
         self._capabilities = int(IBus.Capabilite.PREEDIT_TEXT)
         if surrounding:
             self._capabilities |= int(IBus.Capabilite.SURROUNDING_TEXT)
-        self._suspended = None
         self._sessions.acquire(":1.40", "utt-1", self._focus_token)
 
     @staticmethod
@@ -90,19 +89,6 @@ class _EngineHarness(_PresentationRecorder):
 
     def _invalidate_voice(self, reason: str) -> None:
         MurmurEngine._invalidate_voice(self, reason)
-
-    def _suspend_voice(self, reason: str) -> bool:
-        return MurmurEngine._suspend_voice(self, reason)
-
-    def _resume_voice(self, object_path: str) -> None:
-        MurmurEngine._resume_voice(self, object_path)
-
-    def _live_suspension(self, owner: str, utterance_id: str):
-        return MurmurEngine._live_suspension(self, owner, utterance_id)
-
-    @property
-    def has_active_session(self) -> bool:
-        return self._sessions.active is not None
 
     def _arm_observation_timeout(self, *args) -> None:
         del args
@@ -338,102 +324,12 @@ class MurmurEnginePresentationTests(unittest.TestCase):
         self.assertTrue(engine._sessions.observing)
         self.assertEqual(engine._focus_token, 7)
 
-    def test_reset_before_final_clears_preedit_but_keeps_the_utterance(self) -> None:
+    def test_reset_before_final_still_invalidates_active_preedit(self) -> None:
         engine = _EngineHarness()
-        MurmurEngine._set_preedit(engine, "说到一半")
 
         MurmurEngine.do_reset(engine)
 
-        self.assertIsNotNone(engine._sessions.active)
-        self.assertEqual(engine.preedits[-1][0], "")
-        self.assertTrue(
-            MurmurEngine.partial(engine, ":1.40", "utt-1", 1, "说到一半，继续")
-        )
-        self.assertEqual(engine.preedits[-1][0], "说到一半，继续")
-        self.assertTrue(
-            MurmurEngine.final(engine, ":1.40", "utt-1", 2, "说到一半，继续。")
-        )
-        self.assertEqual(engine.commits, ["说到一半，继续。"])
-
-
-class SuspendedDictationTests(unittest.TestCase):
-    CONTEXT = "/org/murmur/TestContext"
-    DIALOG = "/org/murmur/PasswordDialog"
-
-    def _away_to_dialog(self, engine) -> None:
-        MurmurEngine._focus_out(engine, self.CONTEXT)
-        MurmurEngine._focus_in(engine, self.DIALOG, "gtk4-im:pkexec")
-        MurmurEngine.do_set_content_type(
-            engine, int(IBus.InputPurpose.PASSWORD), int(IBus.InputHints.PRIVATE)
-        )
-
-    def test_dialog_focus_suspends_then_return_resumes_and_commits(self) -> None:
-        engine = _EngineHarness()
-        engine.can_acquire = lambda: engine._focused
-        MurmurEngine._set_preedit(engine, "前半句")
-
-        self._away_to_dialog(engine)
-
-        self.assertIsNotNone(engine._suspended)
-        self.assertIsNotNone(engine._sessions.active)
-        self.assertEqual(engine.preedits[-1][0], "")
-        # Speech keeps arriving while away; it is kept but not shown.
-        shown = len(engine.preedits)
-        self.assertTrue(
-            MurmurEngine.partial(engine, ":1.40", "utt-1", 1, "前半句，后半句")
-        )
-        self.assertEqual(len(engine.preedits), shown)
-        self.assertEqual(engine.commits, [])
-
-        MurmurEngine._focus_out(engine, self.DIALOG)
-        MurmurEngine._focus_in(engine, self.CONTEXT, "gtk4-im:test")
-
-        self.assertIsNone(engine._suspended)
-        self.assertEqual(engine.preedits[-1][0], "前半句，后半句")
-        self.assertEqual(engine._sessions.active.focus_token, engine._focus_token)
-        self.assertTrue(
-            MurmurEngine.final(engine, ":1.40", "utt-1", 2, "前半句，后半句。")
-        )
-        self.assertEqual(engine.commits, ["前半句，后半句。"])
-
-    def test_final_while_away_is_rejected_and_never_committed_elsewhere(self) -> None:
-        engine = _EngineHarness()
-        engine.can_acquire = lambda: engine._focused
-        self._away_to_dialog(engine)
-
-        self.assertFalse(MurmurEngine.final(engine, ":1.40", "utt-1", 1, "终稿"))
-        self.assertEqual(engine.commits, [])
-        self.assertTrue(MurmurEngine.cancel(engine, ":1.40", "utt-1"))
-        self.assertIsNone(engine._suspended)
-
-    def test_expired_suspension_ends_the_utterance(self) -> None:
-        engine = _EngineHarness()
-        engine.can_acquire = lambda: engine._focused
-        self._away_to_dialog(engine)
-        engine._suspended.deadline = 0.0
-
-        self.assertFalse(MurmurEngine.partial(engine, ":1.40", "utt-1", 1, "late"))
-        self.assertIsNone(engine._suspended)
         self.assertIsNone(engine._sessions.active)
-
-    def test_returning_to_another_field_does_not_resume(self) -> None:
-        engine = _EngineHarness()
-        engine.can_acquire = lambda: engine._focused
-        self._away_to_dialog(engine)
-        MurmurEngine._focus_out(engine, self.DIALOG)
-        MurmurEngine._focus_in(engine, "/org/murmur/OtherField", "gtk4-im:other")
-
-        self.assertIsNotNone(engine._suspended)
-        self.assertEqual(engine.commits, [])
-
-    def test_unidentified_focus_loss_still_ends_the_utterance(self) -> None:
-        engine = _EngineHarness()
-        engine._focus_context = ""
-
-        MurmurEngine._focus_out(engine, "")
-
-        self.assertIsNone(engine._sessions.active)
-        self.assertIsNone(engine._suspended)
 
 
 if __name__ == "__main__":

@@ -543,16 +543,6 @@ class VoiceSession:
             if self._state is VoiceState.STARTING:
                 self._state = VoiceState.RECORDING
 
-    def _copy_unplaced_final_locked(self, text: str) -> bool:
-        try:
-            self._clipboard_writer.preflight()
-            self._clipboard_writer.write(text)
-        except Exception:
-            logger.error("Rejected final could not be copied to the clipboard")
-            return False
-        logger.info("Rejected final was copied to the clipboard")
-        return True
-
     def _on_asr_finish(self, session_serial: int, source: Any) -> None:
         with self._lock:
             if not self._is_current_source_locked(session_serial, source):
@@ -632,14 +622,7 @@ class VoiceSession:
                 # final() may reject before making its D-Bus call. cancel() is
                 # harmless if final() already cleared the client session.
                 self._preedit.cancel(utterance_id)
-                # The usual cause is that dictation was stopped while its field
-                # was away (a dialog, another window). Never type it elsewhere;
-                # keep the words by copying them for one manual paste.
-                self._last_error_code = (
-                    "preedit-final-copied"
-                    if self._copy_unplaced_final_locked(delivered_text)
-                    else "preedit-final-rejected"
-                )
+                self._last_error_code = "preedit-final-rejected"
                 self._discard_data_record_locked()
                 self._clear_sensitive_state_locked()
                 return
