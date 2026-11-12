@@ -41,6 +41,8 @@ here. The project has not published a stable release yet.
   so the check causes no visible flicker. The interrupted utterance is still
   discarded, as before.
 
+### Added
+
 - A caret hint marks an active dictation: as soon as the engine takes the
   input context, IBus auxiliary text next to the cursor shows "● Dictating"
   (or "● 正在听写" when the desktop's message language is Chinese), followed by
