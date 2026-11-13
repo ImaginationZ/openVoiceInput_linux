@@ -489,6 +489,16 @@ class VoiceSession:
             return self.start()
         if state in (VoiceState.STARTING, VoiceState.RECORDING):
             return self.stop()
+        if state is VoiceState.STOPPING:
+            # Still waiting for the provider's final (a stalled network, or a
+            # provider that never completes an utterance without speech).
+            # Pressing the toggle again means "dictate now": drop the pending
+            # utterance, as the final timeout would, and start the next one.
+            with self._lock:
+                if self._state is VoiceState.STOPPING:
+                    logger.info("Toggle while waiting for the final; dropping it")
+                    self._abort_locked("final-abandoned")
+            return self.start()
         return CommandReply(True, "already-stopping", state)
 
     def cancel(self) -> CommandReply:
