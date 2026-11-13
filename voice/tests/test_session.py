@@ -1457,12 +1457,28 @@ def test_toggle_starts_then_stops_and_close_restores():
 
     assert session.toggle().code == "started"
     assert session.toggle().code == "stopping"
-    assert session.toggle().code == "already-stopping"
     session.close()
 
     assert session.state is VoiceState.IDLE
     assert preedit.closed == 1
     assert [call[0] for call in preedit.calls].count("cancel") == 1
+
+
+def test_toggle_while_waiting_for_the_final_drops_it_and_starts_again():
+    session, asr, audio, preedit, timers, order = _session()
+    session.start()
+    asr.on_result("never finalized")
+    assert session.toggle().code == "stopping"
+
+    reply = session.toggle()
+
+    assert reply.code == "started"
+    assert session.state is VoiceState.STARTING
+    calls = [call[0] for call in preedit.calls]
+    assert calls.count("final") == 0
+    assert calls.count("cancel") == 1
+    assert calls.count("acquire") == 2
+    assert asr.disconnected >= 1
 
 
 def test_ten_minute_limit_auto_stops_then_accepts_only_provider_final():
