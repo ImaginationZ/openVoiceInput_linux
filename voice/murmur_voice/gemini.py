@@ -38,6 +38,10 @@ CHANNELS = 1
 # The Live API documents ~100 ms chunks for real-time input.
 _CHUNK_BYTES = SAMPLE_RATE * SAMPLE_WIDTH * CHANNELS // 10
 _AUDIO_MIME_TYPE = f"audio/pcm;rate={SAMPLE_RATE}"
+# When the server ends our activity without having heard any speech, it sends
+# no completion at all. Wait this long for a late transcript, then finish empty
+# instead of holding the session until the final-result timeout.
+_NO_SPEECH_GRACE_SECONDS = 2.0
 
 # Interim hypotheses sometimes space out every CJK character ("我 今 天").
 # Collapse whitespace only when both neighbours are CJK text or punctuation,
@@ -448,8 +452,21 @@ class GeminiASRClient:
         partial = ""
         setup_complete = False
         last_emitted = ""
+        no_speech_deadline: float | None = None
+        loop = asyncio.get_running_loop()
         while self._is_current(generation):
-            raw = await websocket.recv()
+            if no_speech_deadline is None:
+                raw = await websocket.recv()
+            else:
+                try:
+                    raw = await asyncio.wait_for(
+                        websocket.recv(),
+                        max(0.0, no_speech_deadline - loop.time()),
+                    )
+                except asyncio.TimeoutError:
+                    # Nothing was transcribed and nothing more is coming.
+                    self._invoke(self.on_finish, generation)
+                    return
             if isinstance(raw, bytes):
                 try:
                     raw = raw.decode("utf-8")
@@ -474,6 +491,16 @@ class GeminiASRClient:
                 continue
             if not setup_complete:
                 raise GeminiProtocolError("Gemini returned an event before setup")
+            activity = document.get("voiceActivity")
+            if (
+                isinstance(activity, dict)
+                and activity.get("type") == "ACTIVITY_END"
+                and finish_sent.is_set()
+                and not finals
+                and not partial
+                and no_speech_deadline is None
+            ):
+                no_speech_deadline = loop.time() + _NO_SPEECH_GRACE_SECONDS
             content = document.get("serverContent")
             if content is None:
                 # voiceActivity, usageMetadata, goAway, ... carry no transcript.
@@ -493,6 +520,8 @@ class GeminiASRClient:
                 partial = ""
                 changed = True
             if changed:
+                # Speech after all: wait for the server's own completion.
+                no_speech_deadline = None
                 combined = _combine(finals, partial)
                 if combined and combined != last_emitted:
                     last_emitted = combined

@@ -403,3 +403,93 @@ def test_gemini_vocabulary_dedupes_case_insensitively_before_the_cap():
 def test_gemini_rejects_empty_language_codes():
     with pytest.raises(ValueError):
         GeminiASRClient(_settings(language_codes=()))
+
+
+class _HangingWebSocket(_ScriptedWebSocket):
+    """Scripted events, then a server that sends nothing more."""
+
+    async def recv(self):
+        if not self._events:
+            await asyncio.Event().wait()
+        return await super().recv()
+
+
+def test_gemini_activity_end_without_speech_finishes_empty(monkeypatch):
+    # Seen live 2026-11-12: with no speech, the server echoes ACTIVITY_END and
+    # never completes the turn; the session must not wait for the final timeout.
+    monkeypatch.setattr("murmur_voice.gemini._NO_SPEECH_GRACE_SECONDS", 0.05)
+    events = [
+        {"setupComplete": {}},
+        {"serverContent": {}, "voiceActivity": {"type": "ACTIVITY_START"}},
+        {"serverContent": {}, "voiceActivity": {"type": "ACTIVITY_END"}},
+    ]
+    client = _active_client(11)
+    callbacks = []
+    client.on_result = callbacks.append
+    client.on_finish = lambda: callbacks.append("finish")
+    finish_sent = asyncio.Event()
+    finish_sent.set()
+
+    asyncio.run(
+        asyncio.wait_for(
+            client._receive(
+                _HangingWebSocket(events), 11, asyncio.Event(), finish_sent
+            ),
+            2,
+        )
+    )
+
+    assert callbacks == ["finish"]
+
+
+def test_gemini_speech_after_activity_end_waits_for_the_completion(monkeypatch):
+    monkeypatch.setattr("murmur_voice.gemini._NO_SPEECH_GRACE_SECONDS", 0.05)
+    events = [
+        {"setupComplete": {}},
+        {"serverContent": {}, "voiceActivity": {"type": "ACTIVITY_END"}},
+        {"serverContent": {"interimInputTranscription": {"text": "late"}}},
+    ]
+    client = _active_client(12)
+    callbacks = []
+    client.on_result = callbacks.append
+    client.on_finish = lambda: callbacks.append("finish")
+    finish_sent = asyncio.Event()
+    finish_sent.set()
+
+    class SlowFinal(_ScriptedWebSocket):
+        async def recv(self):
+            if not self._events:
+                await asyncio.sleep(0.2)  # longer than the grace period
+                self._events = [
+                    {"serverContent": {"inputTranscription": {"text": "late words"}}},
+                    {"serverContent": {"generationComplete": True}},
+                ]
+            return await super().recv()
+
+    asyncio.run(
+        asyncio.wait_for(
+            client._receive(SlowFinal(events), 12, asyncio.Event(), finish_sent), 2
+        )
+    )
+
+    assert callbacks == ["late", "late words", "finish"]
+
+
+def test_gemini_activity_end_before_our_finish_is_ignored(monkeypatch):
+    monkeypatch.setattr("murmur_voice.gemini._NO_SPEECH_GRACE_SECONDS", 0.05)
+    events = [
+        {"setupComplete": {}},
+        {"serverContent": {}, "voiceActivity": {"type": "ACTIVITY_END"}},
+    ]
+    client = _active_client(13)
+    client.on_finish = lambda: pytest.fail("finished before activityEnd was sent")
+
+    with pytest.raises(asyncio.TimeoutError):
+        asyncio.run(
+            asyncio.wait_for(
+                client._receive(
+                    _HangingWebSocket(events), 13, asyncio.Event(), asyncio.Event()
+                ),
+                0.3,
+            )
+        )
